@@ -83,7 +83,7 @@ $form.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 $urlTextBox = New-Object System.Windows.Forms.TextBox
 $urlTextBox.Location = New-Object System.Drawing.Point(10,10)
 $urlTextBox.Size = New-Object System.Drawing.Size(500,20)
-$urlTextBox.Text = "https://raw.githubusercontent.com/mckayc/McWindows/master/McChocolateyList.csv"
+$urlTextBox.Text = "https://raw.githubusercontent.com/mckayc/provisioner/main/defaultpackages.csv"
 $form.Controls.Add($urlTextBox)
 
 # Open Button
