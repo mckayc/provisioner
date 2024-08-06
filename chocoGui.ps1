@@ -28,8 +28,6 @@ function Read-CsvFile($path) {
     return $csv
 }
 
-Modified ChocolateyPackageManager.ps1
-
 # Function to get locally installed packages
 function Get-LocalPackages {
     $chocoPath = $env:ChocolateyInstall
