@@ -28,9 +28,23 @@ function Read-CsvFile($path) {
     return $csv
 }
 
+Modified ChocolateyPackageManager.ps1
+
 # Function to get locally installed packages
 function Get-LocalPackages {
-    $installedPackages = choco list --id-only | Where-Object { $_ -notmatch '\.' -and $_ -notmatch '\s' -and $_ -notmatch 'chocolatey' }
+    $chocoPath = $env:ChocolateyInstall
+    if (-not $chocoPath) {
+        $chocoPath = "$env:PROGRAMDATA\chocolatey"
+    }
+    
+    $libPath = Join-Path $chocoPath 'lib'
+    
+    if (Test-Path $libPath) {
+        $installedPackages = Get-ChildItem $libPath -Directory | Select-Object -ExpandProperty Name
+    } else {
+        Write-Warning "Chocolatey lib directory not found. Falling back to choco list command."
+        $installedPackages = choco list --local-only --id-only | Where-Object { $_ -notmatch '\.' -and $_ -notmatch '\s' -and $_ -notmatch 'chocolatey' }
+    }
 
     return $installedPackages
 }
