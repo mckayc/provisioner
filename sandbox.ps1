@@ -10,7 +10,8 @@ function Ensure-Chocolatey {
         Set-ExecutionPolicy Bypass -Scope Process -Force
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
         Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
-    } else {
+    }
+    else {
         Write-Host "Chocolatey is already installed."
     }
 }
@@ -20,7 +21,8 @@ function Read-CsvFile($path) {
     if ($path -like "http*") {
         $content = Invoke-WebRequest -Uri $path -UseBasicParsing | Select-Object -ExpandProperty Content
         $csv = ConvertFrom-Csv $content
-    } else {
+    }
+    else {
         $csv = Import-Csv $path
     }
     return $csv
@@ -28,9 +30,21 @@ function Read-CsvFile($path) {
 
 # Function to get locally installed packages
 function Get-LocalPackages {
-    $installedPackages = choco list --id-only
-    $filteredPackages = $installedPackages | Where-Object { $_ -notmatch '\.install' -and $_ -notmatch '\s' }
-    return $filteredPackages
+    $chocoPath = $env:ChocolateyInstall
+    if (-not $chocoPath) {
+        $chocoPath = "$env:PROGRAMDATA\chocolatey"
+    }
+    
+    $libPath = Join-Path $chocoPath 'lib'
+    
+    if (Test-Path $libPath) {
+        $installedPackages = Get-ChildItem $libPath -Directory | Select-Object -ExpandProperty Name
+    } else {
+        Write-Warning "Chocolatey lib directory not found. Falling back to choco list command."
+        $installedPackages = choco list --local-only --id-only | Where-Object { $_ -notmatch '\.' -and $_ -notmatch '\s' -and $_ -notmatch 'chocolatey' }
+    }
+
+    return $installedPackages
 }
 
 # Function to install package
@@ -53,8 +67,9 @@ function Uninstall-ChocoPackage($package) {
 
 # Function to update console output
 function UpdateConsoleOutput($text) {
-    $form.Invoke([Action]{ $consoleOutput.AppendText("$text`r`n") })
-    $form.Invoke([Action]{ $consoleOutput.ScrollToCaret() })
+    $consoleOutput.AppendText("$text`r`n")
+    $consoleOutput.ScrollToCaret()
+    $form.Refresh()
 }
 
 # Main form
@@ -135,11 +150,7 @@ $loadButton.Add_Click({
     $packageList.Items.Clear()
     
     $csv = Read-CsvFile $urlTextBox.Text
-    if ($csv -eq $null) {
-        UpdateConsoleOutput "Failed to load packages from CSV."
-        return
-    }
-    $localPackages = Get-LocalPackages
+    $installedPackages = Get-LocalPackages
 
     UpdateConsoleOutput "Loading packages..."
 
@@ -170,8 +181,7 @@ $loadButton.Add_Click({
     Add-CategoryHeader "Install First"
     $installFirstPackages = $csv | Where-Object { $_.Category -eq "Install First" } | Sort-Object Package
     foreach ($package in $installFirstPackages) {
-        $isInstalled = $localPackages -contains $package.Package
-        Add-Package $package.Package $package.Category $isInstalled
+        Add-Package $package.Package $package.Category ($installedPackages -contains $package.Package)
     }
 
     # Add other categories
@@ -180,14 +190,13 @@ $loadButton.Add_Click({
         Add-CategoryHeader $category
         $packages = $csv | Where-Object { $_.Category -eq $category } | Sort-Object Package
         foreach ($package in $packages) {
-            $isInstalled = $localPackages -contains $package.Package
-            Add-Package $package.Package $package.Category $isInstalled
+            Add-Package $package.Package $package.Category ($installedPackages -contains $package.Package)
         }
     }
 
     # Add "Other Installed Software" category
     Add-CategoryHeader "Other Installed Software"
-    $otherInstalledSoftware = $localPackages | Where-Object { $_ -notin $csv.Package -and $_ -notlike "*chocolatey*" } | Sort-Object
+    $otherInstalledSoftware = $installedPackages | Where-Object { $_ -notin $csv.Package } | Sort-Object
     foreach ($package in $otherInstalledSoftware) {
         Add-Package $package "Other Installed Software" $true
     }
@@ -200,28 +209,17 @@ $packageList.Add_ItemCheck({
     param($sender, $e)
     $item = $sender.Items[$e.Index]
     if ($item.SubItems.Count -lt 3) { return } # Skip category headers
-
-    if ($sender.Items[$e.Index].Text -match '^\s{4}') {
-        $category = $item.SubItems[1].Text
-        $isChecked = $e.NewValue -eq [System.Windows.Forms.CheckState]::Checked
-        foreach ($pkg in $sender.Items) {
-            if ($pkg.SubItems.Count -ge 3 -and $pkg.SubItems[1].Text -eq $category) {
-                $pkg.Checked = $isChecked
-            }
+    if ($e.NewValue -eq [System.Windows.Forms.CheckState]::Checked) {
+        if ($item.SubItems[2].Text -eq "Installed") {
+            $item.BackColor = [System.Drawing.Color]::LightBlue
+        } else {
+            $item.BackColor = [System.Drawing.Color]::LightGreen
         }
     } else {
-        if ($e.NewValue -eq [System.Windows.Forms.CheckState]::Checked) {
-            if ($item.SubItems[2].Text -eq "Installed") {
-                $item.BackColor = [System.Drawing.Color]::LightBlue
-            } else {
-                $item.BackColor = [System.Drawing.Color]::LightGreen
-            }
+        if ($item.SubItems[2].Text -eq "Installed") {
+            $item.BackColor = [System.Drawing.Color]::LightCoral
         } else {
-            if ($item.SubItems[2].Text -eq "Installed") {
-                $item.BackColor = [System.Drawing.Color]::LightCoral
-            } else {
-                $item.BackColor = [System.Drawing.SystemColors]::Window
-            }
+            $item.BackColor = [System.Drawing.SystemColors]::Window
         }
     }
 })
@@ -231,30 +229,24 @@ $executeButton.Add_Click({
     $totalPackages = ($packageList.Items | Where-Object { $_.SubItems.Count -ge 3 }).Count
     $currentPackage = 0
 
-    # Use Runspace for background processing
-    $runspace = [powershell]::Create().AddScript({
-        param($packages)
+    foreach ($item in $packageList.Items) {
+        if ($item.SubItems.Count -lt 3) { continue } # Skip category headers
+        $currentPackage++
+        $progressBar.Value = ($currentPackage / $totalPackages) * 100
 
-        foreach ($item in $packages) {
-            if ($item.SubItems.Count -lt 3) { continue } # Skip category headers
-            $currentPackage++
-            $progressBar.Value = ($currentPackage / $totalPackages) * 100
-
-            if ($item.Checked -and $item.BackColor -eq [System.Drawing.Color]::LightGreen) {
-                Install-ChocoPackage $item.Text.Trim()
-                $item.BackColor = [System.Drawing.Color]::LightBlue
-                $item.SubItems[2].Text = "Installed"
-            } elseif (-not $item.Checked -and $item.BackColor -eq [System.Drawing.Color]::LightCoral) {
-                Uninstall-ChocoPackage $item.Text.Trim()
-                $item.BackColor = [System.Drawing.SystemColors]::Window
-                $item.SubItems[2].Text = "Not Installed"
-            }
+        if ($item.Checked -and $item.BackColor -eq [System.Drawing.Color]::LightGreen) {
+            Install-ChocoPackage $item.Text.Trim()
+            $item.BackColor = [System.Drawing.Color]::LightBlue
+            $item.SubItems[2].Text = "Installed"
+        } elseif (-not $item.Checked -and $item.BackColor -eq [System.Drawing.Color]::LightCoral) {
+            Uninstall-ChocoPackage $item.Text.Trim()
+            $item.BackColor = [System.Drawing.SystemColors]::Window
+            $item.SubItems[2].Text = "Not Installed"
         }
+    }
 
-        $progressBar.Value = 0
-        UpdateConsoleOutput "Execution completed."
-    }).AddArgument($packageList.Items)
-    $runspace.BeginInvoke()
+    $progressBar.Value = 0
+    UpdateConsoleOutput "Execution completed."
 })
 
 # Set Chocolatey timeout
