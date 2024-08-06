@@ -160,6 +160,7 @@ $loadButton.Add_Click({
         $item.Font = New-Object System.Drawing.Font($packageList.Font, [System.Drawing.FontStyle]::Bold)
         $item.ForeColor = [System.Drawing.Color]::Blue
         $item.BackColor = [System.Drawing.Color]::LightGray
+        $item.Checked = $false
         $packageList.Items.Add($item)
     }
 
@@ -208,7 +209,19 @@ $loadButton.Add_Click({
 $packageList.Add_ItemCheck({
     param($sender, $e)
     $item = $sender.Items[$e.Index]
-    if ($item.SubItems.Count -lt 3) { return } # Skip category headers
+    
+    if ($item.SubItems.Count -lt 3) { 
+        # This is a category header, check/uncheck all items in this category
+        $isChecked = $e.NewValue -eq [System.Windows.Forms.CheckState]::Checked
+        for ($i = $e.Index + 1; $i -lt $sender.Items.Count; $i++) {
+            $nextItem = $sender.Items[$i]
+            if ($nextItem.SubItems.Count -lt 3) { break } # Next category header
+            $nextItem.Checked = $isChecked
+        }
+        return
+    }
+    
+    # This is a regular package item
     if ($e.NewValue -eq [System.Windows.Forms.CheckState]::Checked) {
         if ($item.SubItems[2].Text -eq "Installed") {
             $item.BackColor = [System.Drawing.Color]::LightBlue
