@@ -116,12 +116,10 @@ $packageList.Size = New-Object System.Drawing.Size(760,370)
 $packageList.View = [System.Windows.Forms.View]::Details
 $packageList.FullRowSelect = $true
 $packageList.CheckBoxes = $true
-$packageList.Columns.Add("Package", 200)
+$packageList.Columns.Add("Package", 300)
 $packageList.Columns.Add("Category", 200)
 $packageList.Columns.Add("Status", 100)
 $packageList.GridLines = $true
-$packageList.Groups.Add("InstallFirst", "Install First")
-$packageList.ShowGroups = $true
 $form.Controls.Add($packageList)
 
 # Event handlers and main logic
@@ -138,21 +136,26 @@ $openButton.Add_Click({
 # Load Button Click Event
 $loadButton.Add_Click({
     $packageList.Items.Clear()
-    $packageList.Groups.Clear()
-    $packageList.Groups.Add("InstallFirst", "Install First")
     
     $csv = Read-CsvFile $urlTextBox.Text
     $localPackages = Get-LocalPackages
 
     UpdateConsoleOutput "Loading packages..."
 
-    # Add "Install First" category at the top
-    $installFirstPackages = $csv | Where-Object { $_.Category -eq "Install First" } | Sort-Object Package
-    foreach ($package in $installFirstPackages) {
-        $item = New-Object System.Windows.Forms.ListViewItem($package.Package)
-        $item.SubItems.Add($package.Category)
-        $item.Group = $packageList.Groups["InstallFirst"]
-        if ($localPackages -contains $package.Package) {
+    # Function to add a category header
+    function Add-CategoryHeader($category) {
+        $item = New-Object System.Windows.Forms.ListViewItem($category)
+        $item.Font = New-Object System.Drawing.Font($packageList.Font, [System.Drawing.FontStyle]::Bold)
+        $item.ForeColor = [System.Drawing.Color]::Blue
+        $item.BackColor = [System.Drawing.Color]::LightGray
+        $packageList.Items.Add($item)
+    }
+
+    # Function to add a package
+    function Add-Package($package, $category, $isInstalled) {
+        $item = New-Object System.Windows.Forms.ListViewItem("    " + $package)
+        $item.SubItems.Add($category)
+        if ($isInstalled) {
             $item.Checked = $true
             $item.BackColor = [System.Drawing.Color]::LightBlue
             $item.SubItems.Add("Installed")
@@ -162,37 +165,28 @@ $loadButton.Add_Click({
         $packageList.Items.Add($item)
     }
 
+    # Add "Install First" category
+    Add-CategoryHeader "Install First"
+    $installFirstPackages = $csv | Where-Object { $_.Category -eq "Install First" } | Sort-Object Package
+    foreach ($package in $installFirstPackages) {
+        Add-Package $package.Package $package.Category ($localPackages -contains $package.Package)
+    }
+
     # Add other categories
     $categories = $csv | Where-Object { $_.Category -ne "Install First" } | Select-Object -ExpandProperty Category -Unique | Sort-Object
     foreach ($category in $categories) {
-        $packageList.Groups.Add($category, $category)
+        Add-CategoryHeader $category
         $packages = $csv | Where-Object { $_.Category -eq $category } | Sort-Object Package
         foreach ($package in $packages) {
-            $item = New-Object System.Windows.Forms.ListViewItem($package.Package)
-            $item.SubItems.Add($package.Category)
-            $item.Group = $packageList.Groups[$category]
-            if ($localPackages -contains $package.Package) {
-                $item.Checked = $true
-                $item.BackColor = [System.Drawing.Color]::LightBlue
-                $item.SubItems.Add("Installed")
-            } else {
-                $item.SubItems.Add("Not Installed")
-            }
-            $packageList.Items.Add($item)
+            Add-Package $package.Package $package.Category ($localPackages -contains $package.Package)
         }
     }
 
-    # Add "Other Installed Software" category at the bottom
-    $packageList.Groups.Add("OtherInstalled", "Other Installed Software")
+    # Add "Other Installed Software" category
+    Add-CategoryHeader "Other Installed Software"
     $otherInstalledSoftware = $localPackages | Where-Object { $_ -notin $csv.Package } | Sort-Object
     foreach ($package in $otherInstalledSoftware) {
-        $item = New-Object System.Windows.Forms.ListViewItem($package)
-        $item.SubItems.Add("Other Installed Software")
-        $item.Group = $packageList.Groups["OtherInstalled"]
-        $item.Checked = $true
-        $item.BackColor = [System.Drawing.Color]::LightBlue
-        $item.SubItems.Add("Installed")
-        $packageList.Items.Add($item)
+        Add-Package $package "Other Installed Software" $true
     }
 
     UpdateConsoleOutput "Packages loaded successfully."
@@ -202,6 +196,7 @@ $loadButton.Add_Click({
 $packageList.Add_ItemCheck({
     param($sender, $e)
     $item = $sender.Items[$e.Index]
+    if ($item.SubItems.Count -lt 3) { return } # Skip category headers
     if ($e.NewValue -eq [System.Windows.Forms.CheckState]::Checked) {
         if ($item.SubItems[2].Text -eq "Installed") {
             $item.BackColor = [System.Drawing.Color]::LightBlue
@@ -219,19 +214,20 @@ $packageList.Add_ItemCheck({
 
 # Execute Button Click Event
 $executeButton.Add_Click({
-    $totalPackages = $packageList.Items.Count
+    $totalPackages = ($packageList.Items | Where-Object { $_.SubItems.Count -ge 3 }).Count
     $currentPackage = 0
 
     foreach ($item in $packageList.Items) {
+        if ($item.SubItems.Count -lt 3) { continue } # Skip category headers
         $currentPackage++
         $progressBar.Value = ($currentPackage / $totalPackages) * 100
 
         if ($item.Checked -and $item.BackColor -eq [System.Drawing.Color]::LightGreen) {
-            Install-ChocoPackage $item.Text
+            Install-ChocoPackage $item.Text.Trim()
             $item.BackColor = [System.Drawing.Color]::LightBlue
             $item.SubItems[2].Text = "Installed"
         } elseif (-not $item.Checked -and $item.BackColor -eq [System.Drawing.Color]::LightCoral) {
-            Uninstall-ChocoPackage $item.Text
+            Uninstall-ChocoPackage $item.Text.Trim()
             $item.BackColor = [System.Drawing.SystemColors]::Window
             $item.SubItems[2].Text = "Not Installed"
         }
