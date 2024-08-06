@@ -38,7 +38,7 @@ function Get-LocalPackages {
     $libPath = Join-Path $chocoPath 'lib'
     
     if (Test-Path $libPath) {
-        $installedPackages = Get-ChildItem $libPath -Directory | Select-Object -ExpandProperty Name | Where-Object { $_ -notmatch '\.' -and $_ -notmatch '\s' -and $_ -notmatch 'chocolatey'
+        $installedPackages = Get-ChildItem $libPath -Directory | Select-Object -ExpandProperty Name | Where-Object { $_ -notmatch '\.' -and $_ -notmatch '\s' -and $_ -notmatch 'chocolatey' }
     } else {
         Write-Warning "Chocolatey lib directory not found. Falling back to choco list command."
         $installedPackages = choco list --local-only --id-only | Where-Object { $_ -notmatch '\.' -and $_ -notmatch '\s' -and $_ -notmatch 'chocolatey' }
