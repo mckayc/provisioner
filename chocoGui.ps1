@@ -30,9 +30,9 @@ function Read-CsvFile($path) {
 
 # Function to get locally installed packages
 function Get-LocalPackages {
-    $installedPackages = choco list --id-only
-    $filteredPackages = $installedPackages | Where-Object { $_ -notmatch '\.install' -and $_ -notmatch '\s' }
-    return $filteredPackages
+    $installedPackages = choco list --id-only | Where-Object { $_ -notmatch '\.' -and $_ -notmatch '\s' -and $_ -notmatch 'chocolatey' }
+
+    return $installedPackages
 }
 
 # Function to install package
@@ -138,7 +138,7 @@ $loadButton.Add_Click({
     $packageList.Items.Clear()
     
     $csv = Read-CsvFile $urlTextBox.Text
-    $localPackages = Get-LocalPackages
+    $installedPackages = Get-LocalPackages
 
     UpdateConsoleOutput "Loading packages..."
 
@@ -169,7 +169,7 @@ $loadButton.Add_Click({
     Add-CategoryHeader "Install First"
     $installFirstPackages = $csv | Where-Object { $_.Category -eq "Install First" } | Sort-Object Package
     foreach ($package in $installFirstPackages) {
-        Add-Package $package.Package $package.Category ($localPackages -contains $package.Package)
+        Add-Package $package.Package $package.Category ($installedPackages -contains $package.Package)
     }
 
     # Add other categories
@@ -178,13 +178,13 @@ $loadButton.Add_Click({
         Add-CategoryHeader $category
         $packages = $csv | Where-Object { $_.Category -eq $category } | Sort-Object Package
         foreach ($package in $packages) {
-            Add-Package $package.Package $package.Category ($localPackages -contains $package.Package)
+            Add-Package $package.Package $package.Category ($installedPackages -contains $package.Package)
         }
     }
 
     # Add "Other Installed Software" category
     Add-CategoryHeader "Other Installed Software"
-    $otherInstalledSoftware = $localPackages | Where-Object { $_ -notin $csv.Package } | Sort-Object
+    $otherInstalledSoftware = $installedPackages | Where-Object { $_ -notin $csv.Package } | Sort-Object
     foreach ($package in $otherInstalledSoftware) {
         Add-Package $package "Other Installed Software" $true
     }
